@@ -37,3 +37,15 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+old_codes/
+chull/
+
+
+docs/models
+docs/chull
+docs/old_codes
+docs/shapefiles
+docs/data
+docs/figs
+
