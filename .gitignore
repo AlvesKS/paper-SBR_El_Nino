@@ -47,5 +47,5 @@ docs/chull
 docs/old_codes
 docs/shapefiles
 docs/data
-docs/figs
+#docs/figs
 
