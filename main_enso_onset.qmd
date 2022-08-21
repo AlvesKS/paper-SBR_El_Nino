@@ -1,0 +1,753 @@
+---
+title: "Data analysis"
+---
+
+# Packages
+
+::: callout-warning
+# R packages instalation
+
+Make sure to have all packages bellow instaled before reproducing the analysis. To install these packages, one can use the function `install.packages()`. However, for installing the INLA package, we recommend following the instruction provided the [INLA website](https://www.r-inla.org/download-install){target="_blank"}.
+:::
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggdist)
+library(rgdal)
+library(spdep)
+library(INLA)
+library(distributional)
+library(viridis)
+library(lubridate)
+library(lemon)
+library(ggthemes)
+library(cowplot)
+
+```
+
+
+```{r eval=TRUE, include=FALSE}
+# code for printing df in a paged format
+library(knitr)
+knit_print.data.frame <- function (x, options, ...) {
+  rmarkdown::paged_table(x, options) %>% 
+    rmarkdown:::print.paged_df()
+}
+registerS3method("knit_print", "data.frame", knit_print.data.frame)
+```
+
+# Load SBR data
+
+The data on SBR occurrences in Southern Brazil can be loaded as shown in the code chunk below. Notice that we performed the transformation on the type date column types to `date` format. The column `season` was also transformed to type `character`.
+
+```{r}
+sbr_rep = read.csv(".data/sbr_rep.csv") %>% 
+  #removing ther X column 
+  dplyr::select(-X) %>% 
+  
+  # tranforming the date columns to type date
+  mutate(start_season = as.Date(start_season),
+         start_date = as.Date(start_date),
+         date_report = as.Date(date_report)) %>% 
+  # tranforming the seasons column to type character
+  mutate(season = as.character(season))
+
+
+
+```
+
+# Summaries SBR occurrence
+
+In this part we extract some sumaries from the SBR data set
+
+### Number of reports
+
+```{r}
+sbr_rep %>% 
+  summarise(n_reports = length(date_report))
+  
+```
+
+### Number of reports by state
+
+```{r}
+sbr_rep %>% 
+  group_by(state) %>%
+  summarise(n_reports = length(date_report))
+  
+```
+
+```{r}
+sbr_rep %>%
+  group_by(state) %>% 
+  summarise(length(unique(location)))
+```
+
+### Number of reports by season
+
+```{r}
+sbr_rep %>% 
+  group_by(season) %>%
+  summarise(n_reports = length(date_report)) %>% 
+  arrange(n_reports)
+  
+```
+
+### Earliests reports per season
+
+```{r}
+sbr_rep %>% 
+  group_by(season) %>% 
+  filter(date_report == min(date_report)) %>% 
+  arrange(days_sep15)
+```
+
+### Distribution of dates of SBR occurrences
+
+```{r}
+sbr_rep %>%
+  mutate(year_s = as.numeric(season)-2000,
+         year_date = year(date_report),
+         year_new = year_date-year_s,
+         month2 = month(date_report),
+         day = day(date_report)) %>%
+  unite(date_altered, year_new, month2, day, sep ="-") %>%
+  mutate(date_altered = as.Date(date_altered)) %>%
+  ggplot(aes(y= season, x = days)) +
+  stat_histinterval(aes(fill = stat(pdf)),
+                    slab_type = "histogram",
+                    geom = "slab",
+                    breaks = 20
+                    )+
+  geom_point(shape = "|", size =2)+
+  theme_half_open()+
+  background_grid(major = "y")+
+  scale_x_continuous(limits = c(0,215),
+                     labels = format(as.Date(c(seq(0,215, by = 50)+as.Date("2000-09-15")),
+                               format = "%d-%b-%Y"),"%b %d")
+                     )+
+  scale_fill_gradient(low ="#1e88e5ff", high = "#ff0d57ff")+
+  labs(x = "Dates",
+       y = "Season")+
+ 
+  theme(axis.text.x = element_text(),
+        strip.background = element_blank(),
+        legend.position = "none"
+        )
+
+ggsave(".figs/histogram_dates.png", dpi = 600, height = 10, width = 6)
+
+
+```
+
+# ENSO
+
+## Load ENSO data
+
+Here we load the data on Oceanic Niño Index (ONI)
+
+```{r}
+ensodata2 =read.csv( ".data/enso_tidy.csv") %>% 
+  #removing ther X column 
+  dplyr::select(-X) %>% 
+  # reodering the enso column as "Neutral" > "El Niño" > "La Niña"
+  mutate(enso = factor(enso, c("Neutral","El Niño", "La Niña"))) %>% 
+  # tranforming the seasons column to type character
+  mutate(season = as.character(season))
+```
+
+## Exploring ENSO data
+
+```{r}
+ONI_trimesters = ensodata2 %>% 
+  pivot_longer(1:12,
+               names_to = "trimester",
+               values_to = "ONI") %>% 
+  mutate(trimester = factor(trimester,
+                            levels =c("DJF","JFM","FMA","MAM","AMJ","MJJ","JJA","JAS","ASO","SON","OND","NDJ" ) ))
+ONI_trimesters
+```
+
+### ONI over time for each year (2004 to 2020)
+
+```{r}
+ONI_trimesters %>% 
+  ggplot(aes(trimester, ONI, group = season, color = enso))+
+  geom_hline(yintercept = 0, color = "gray")+
+  scale_color_colorblind()+
+  geom_vline(xintercept = "OND", color = "gray")+
+stat_summary(fun.y=sum, geom="line")+
+  theme_half_open()
+  
+```
+
+### ONI for selected trimesters
+
+- January, February, and March (ONI~JFM~, prior to the growing season);
+- May, June, and July (ONI~MJJ~, prior to the growing season);
+- October, November, and December (ONI~OND~, within the growing season)
+
+```{r}
+ONI_trimesters %>%  
+  filter(trimester %in% c("JFM", "MJJ", "OND")) %>% 
+  ggplot(aes( trimester, ONI, group = trimester, color = ONI))+
+  geom_hline(yintercept = 0, color = "gray")+
+  geom_errorbar(aes(ymin=0, ymax  = ONI), width = 0, color = "black")+
+  geom_line(aes(group = season), color="black")+
+  geom_point(size = 3)+
+   
+  geom_segment(x = 2.7, y = 2.8, xend = 3.6, yend =2.8,
+               color = "black",
+               size =1,
+               arrow = arrow(length = unit(0.09, "npc")))+
+  annotate(geom ="text", x = 2.5, y =3.25 ,label = "Growing season", size = 2.5)+
+  scale_y_continuous(breaks = seq(-1.6, 2.4, by  = 0.8))+
+  scale_color_viridis()+
+  theme_half_open(font_size = 12)+
+  facet_rep_wrap(~season)+
+  labs(x = "Trimester",
+       y = "Oceanic Niño Index (°C)",
+       color = "ENSO phase (OND)")+
+  theme(strip.background = element_blank(),
+        
+        legend.position = "none")
+
+ggsave(".figs/ONItrimeter.png", dpi = 600, height = 6.5, width = 9, bg = "white")
+```
+
+
+### ONI distribution per trimester
+
+- ONI values arranged from lowest to highest
+
+```{r}
+ONI_trimesters%>% 
+  filter(trimester %in% c("JFM", "MJJ", "OND")) %>% 
+  arrange(ONI)
+```
+
+- Boxplot
+
+```{r}
+ONI_trimesters%>% 
+  filter(trimester %in% c("JFM", "MJJ", "OND")) %>% 
+  ggplot(aes(trimester, ONI, color = ONI))+
+  geom_hline(yintercept = 0, linetype = 2, color="gray")+
+  geom_boxplot(width = 0.2, alpha =0)+
+  geom_jitter(width = 0.1, size =2)+
+  scale_color_viridis()+
+  theme_half_open()+
+  labs(x = "Trimester",
+       y = "Oceanic Niño index (ONI) (°C)")+
+  theme(legend.position = "none")
+
+ggsave(".figs/ONIbox_plot.png", dpi = 600, height = 4, width = 4, bg = "white")
+
+```
+
+- Summaries
+
+```{r}
+ONI_trimesters%>% 
+  filter(trimester %in% c("JFM", "MJJ", "OND")) %>% 
+  group_by(trimester) %>% 
+  summarise(ONI_mean = round(mean(ONI),2),
+            ONI_sd = round(sd(ONI),2),
+            median(ONI),
+            min(ONI),
+            max(ONI))
+```
+
+
+
+# Modeling the effect of ONI
+
+## Cox Proportional Hazards Model
+
+### Data preparation
+
+#### SBR data
+
+```{r}
+sbr_rep_count = sbr_rep %>%
+  mutate(count =  1) %>% 
+  mutate(season = as.character(season))
+```
+
+#### Loading shapefiles
+
+Shape files will be used for the obtaining the spatial structure of municipalities
+
+```{r warning=FALSE, message=FALSE}
+shape_sul= readOGR(".shapefiles/BR_MUN1997_S_region","BR_MUN1997_S_region" )
+
+shape_sul@data$id = rownames(shape_sul@data)
+sul_points = fortify(shape_sul)
+sul_df =plyr::join(sul_points, shape_sul@data, by="id")
+
+```
+
+Obtaining the names of the municipalities from the shape files (formatting in the municipalies names in SBR dataset and shape files were different).
+
+```{r}
+IDs = unique(sul_df$id)
+location2 = numeric(length(sbr_rep_count$lat))
+for(i in 1:length(IDs)){
+ qqq = sul_df %>%
+  filter(id == IDs[i])
+
+city = as.character(unique(qqq$MUNIC_PIO))
+
+ for(j in 1:length(sbr_rep_count$lat)){
+    pip = point.in.polygon(point.x = sbr_rep_count$lon[j],
+                           point.y = sbr_rep_count$lat[j],
+                           pol.x = qqq$long,
+                           pol.y = qqq$lat)
+
+      if(pip > 0){location2[j] = city}
+
+ }
+}
+sbr_rep_count_new = sbr_rep_count %>%
+  mutate(MUNIC_PIO = location2)
+
+
+```
+
+#### INLA Data
+
+Creating the data set with new municipalities names
+
+```{r}
+months = c("Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar","Apr","May")
+inla_data_geral = sbr_rep_count %>%
+  mutate(month = factor(month, levels = months)) %>% 
+  full_join(sbr_rep_count_new %>% mutate(month = factor(month, levels = months))) %>% 
+  full_join(data.frame(MUNIC_PIO = unique(sbr_rep_count_new$MUNIC_PIO)) %>% 
+  mutate(S = 1:length(MUNIC_PIO)))
+```
+
+#### adding ONI values
+
+```{r}
+inla_data_enso = inla_data_geral %>% 
+  full_join(ensodata2)
+```
+
+
+#### Neighbour by distance 200 km
+
+```{r}
+sul_locations = unique(sbr_rep_count_new$MUNIC_PIO)
+
+shape_sul_sub = subset(shape_sul, shape_sul$MUNIC_PIO%in%sul_locations )
+
+coords_pr = coords <- coordinates(shape_sul_sub)
+
+IDs_pr <- row.names(as(shape_sul_sub, "data.frame"))
+
+long = coords_pr[,1]
+lat = coords_pr[,2]
+xy <- data.frame(ID = 1:(length(lat)), long, lat)
+
+coordinates(xy) <- c("long", "lat")
+proj4string(xy) <- CRS("+init=epsg:4326")
+
+res <- spTransform(xy, CRS("+proj=utm +zone=22 +south ellps=WGS84"))
+
+coords_grid = as.data.frame(res)
+coords2 = as.matrix(coords_grid[,2:3])
+colnames(coords2) <- c("x1","x2")
+
+
+dnear_dist_200 = dnearneigh(coords2, 0,200000, row.names=IDs_pr)
+
+# nb2INLA("./models/grid200.graph",dnear_dist_200)
+W.pr_dist200 = inla.read.graph("./.models/grid200.graph")
+plot(shape_sul_sub)
+plot(dnear_dist_200,coordinates(shape_sul_sub),col ="red", add = T)
+
+```
+
+
+### Model fitting
+
+-  PC priors
+
+```{r}
+u <- 0.2/0.31
+alpha <- 0.01
+phi.u <- 0.5
+phi.alpha <- 2/3
+```
+
+#### Model for OND
+
+```{r eval=FALSE, include=T}
+form_surv_ONI1 = inla.surv(days, count) ~ 1 + OND + 
+  f(season, model = "iid", hyper = list(prec = list(param = c(0.001,0.001))))+
+  f(S, model = "bym2", graph = W.pr_dist200,
+    hyper = list(prec = list(param = c(0.001, 0.001)), 
+                 phi = list(prior = "pc", 
+                            param = c(phi.u, phi.alpha),
+                            initial = -3)))
+
+
+surv_fit_ONI1 = inla(form_surv_ONI1,
+                        data = inla_data_enso,
+                        family = "coxph",
+                     control.fixed=list(prec.intercept=1),
+                      control.hazard = list(hyper = list(prec = list(param = c(0.001, 0.001)))),
+                        control.compute=list(dic=TRUE,
+                                             cpo=TRUE,
+                                             waic=TRUE,
+                                             openmp.strategy="huge"))
+
+# saveRDS(surv_fit_ONI1, "./.models/model_oni1.RDS")
+```
+
+```{r include=FALSE, eval=TRUE}
+surv_fit_ONI1 = readRDS("./.models/model_oni1.RDS")
+```
+
+##### Model summary
+
+```{r}
+summary(surv_fit_ONI1)
+```
+
+##### Parameters
+
+###### Posterior distribution summaries
+
+```{r}
+par_summ_ond = data.frame(surv_fit_ONI1$summary.fixed %>% 
+             dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+             dplyr::rename(median = `0.5quant`))
+
+
+```
+
+###### HPD intervas
+
+```{r}
+# intercept(beta_0)
+par_hpd_ond=
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.fixed$`(Intercept)`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.fixed$`(Intercept)`)[2],
+           row.names = "(Intercept)"),
+# slope (ONI)
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.fixed$OND)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.fixed$OND)[2],
+           row.names = "OND") 
+)
+
+```
+
+```{r}
+par_ond = bind_cols(par_summ_ond ,par_hpd_ond)
+par_ond
+```
+
+##### Hyperparameters
+
+###### Posterior distribution summaries
+
+```{r}
+hyper_summ_ond = round(surv_fit_ONI1$summary.hyperpar, 3) %>% 
+  dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+  dplyr::rename(median = `0.5quant`)
+```
+
+###### HPD intervas
+
+```{r}
+hyper_hpd_ond = 
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for season`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for season`)[2],
+           row.names = "Precision for season"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for S`)[2],
+           row.names = "Precision for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Phi for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Phi for S`)[2],
+           row.names = "Phi for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for baseline.hazard`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI1$marginals.hyperpar$`Precision for baseline.hazard`)[2],
+           row.names = "Precision for baseline.hazard")
+)
+```
+
+```{r}
+hyper_ond = bind_cols(hyper_summ_ond,hyper_hpd_ond)
+```
+
+```{r}
+bind_rows(par_ond,hyper_ond) %>% 
+  rownames_to_column("parameter") 
+```
+
+#### Model for MJJ
+
+```{r eval=FALSE, include=T}
+form_surv_ONI2 = inla.surv(days, count) ~ 1 + MJJ +
+  f(season, model = "iid", hyper = list(prec = list(param = c(0.001,0.001))))+
+  f(S, model = "bym2", graph = W.pr_dist200,
+    hyper = list(prec = list(param = c(0.001, 0.001)), 
+                 phi = list(prior = "pc", 
+                            param = c(phi.u, phi.alpha),
+                            initial = -3)))
+
+
+surv_fit_ONI2 = inla(form_surv_ONI2,
+                        data = inla_data_enso,
+                        family = "coxph",
+                     control.fixed=list(prec.intercept=1),
+                     control.hazard = list(hyper = list(prec = list(param = c(0.001, 0.001)))),
+                        control.compute=list(dic=TRUE,
+                                             cpo=TRUE,
+                                             waic=TRUE,
+                                             openmp.strategy="huge"))
+
+# saveRDS(surv_fit_ONI2, "./.models/model_oni2.RDS")
+```
+
+```{r include=FALSE, eval=TRUE}
+surv_fit_ONI2 = readRDS("./.models/model_oni2.RDS")
+```
+
+##### Model summary
+
+```{r}
+summary(surv_fit_ONI2)
+
+```
+
+##### Parameters
+
+###### Posterior distribution summaries
+
+```{r}
+par_summ_mjj = 
+data.frame(surv_fit_ONI2$summary.fixed %>% 
+             dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+             dplyr::rename(median = `0.5quant`))
+
+```
+
+###### HPD intervas
+
+```{r}
+par_hpd_mjj = 
+# intercept(beta_0)
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.fixed$`(Intercept)`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.fixed$`(Intercept)`)[2],
+           row.names = "(Intercept)"),
+# slope (ONI)
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.fixed$MJJ)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.fixed$MJJ)[2],
+           row.names = "MJJ") 
+)
+
+```
+
+```{r}
+par_mjj = bind_cols(par_summ_mjj,par_hpd_mjj)
+```
+
+##### Hyperparameters
+
+###### Posterior distribution summaries
+
+```{r}
+hyper_summ_mjj = 
+round(surv_fit_ONI2$summary.hyperpar, 3) %>% 
+  dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+  dplyr::rename(median = `0.5quant`)
+```
+
+###### HPD intervas
+
+```{r}
+hyper_hpd_mjj = 
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for season`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for season`)[2],
+           row.names = "Precision for season"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for S`)[2],
+           row.names = "Precision for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Phi for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Phi for S`)[2],
+           row.names = "Phi for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for baseline.hazard`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI2$marginals.hyperpar$`Precision for baseline.hazard`)[2],
+           row.names = "Precision for baseline.hazard")
+)
+```
+
+```{r}
+hyper_mjj = bind_cols(hyper_summ_mjj,hyper_hpd_mjj)
+hyper_mjj
+```
+
+#### Model for  JFM
+
+```{r eval=FALSE, include=T}
+form_surv_ONI3 = inla.surv(days, count) ~ 1 + JFM + 
+  f(season, model = "iid", hyper = list(prec = list(param = c(0.001,0.001))))+
+  f(S, model = "bym2", graph = W.pr_dist200,
+    hyper = list(prec = list(param = c(0.001, 0.001)), 
+                 phi = list(prior = "pc", 
+                            param = c(phi.u, phi.alpha),
+                            initial = -3)))
+
+
+surv_fit_ONI3 = inla(form_surv_ONI3,
+                        data = inla_data_enso,
+                        family = "coxph",
+                     control.fixed=list(prec.intercept=1),
+                     control.hazard = list(hyper = list(prec = list(param = c(0.001, 0.001)))),
+                        control.compute=list(dic=TRUE,
+                                             cpo=TRUE,
+                                             waic=TRUE,
+                                             openmp.strategy="huge"))
+
+# saveRDS(surv_fit_ONI3, "./.models/model_oni3.RDS")
+```
+
+```{r include=FALSE, eval=TRUE}
+surv_fit_ONI3 = readRDS("./.models/model_oni3.RDS")
+```
+
+
+##### Model summary
+
+```{r}
+summary(surv_fit_ONI3)
+```
+
+##### Parameters
+
+###### Posterior distribution summaries
+
+```{r}
+par_summ_jfm = 
+ data.frame(surv_fit_ONI3$summary.fixed %>% 
+             dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+             dplyr::rename(median = `0.5quant`))
+
+```
+
+###### HPD intervas
+
+```{r}
+par_hpd_jfm = 
+# intercept(beta_0)
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.fixed$`(Intercept)`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.fixed$`(Intercept)`)[2],
+           row.names = "(Intercept)"),
+# slope (ONI)
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.fixed$JFM)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.fixed$JFM)[2],
+           row.names = "JFM") 
+)
+
+```
+
+```{r}
+par_jfm = bind_cols(par_summ_jfm,par_hpd_jfm)
+```
+
+##### Hyperparameters
+
+###### Posterior distribution summaries
+
+```{r}
+hyper_summ_jfm = 
+round(surv_fit_ONI3$summary.hyperpar, 3) %>% 
+  dplyr::select(`mean`,`0.5quant`,`mode`,`sd`) %>% 
+  dplyr::rename(median = `0.5quant`)
+```
+
+###### HPD intervas
+
+```{r}
+hyper_hpd_jfm = 
+bind_rows(
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for season`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for season`)[2],
+           row.names = "Precision for season"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for S`)[2],
+           row.names = "Precision for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Phi for S`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Phi for S`)[2],
+           row.names = "Phi for S"),
+
+data.frame(HPD_lower = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for baseline.hazard`)[1],
+           HPD_upper = inla.hpdmarginal(0.95, surv_fit_ONI3$marginals.hyperpar$`Precision for baseline.hazard`)[2],
+           row.names = "Precision for baseline.hazard")
+)
+```
+
+```{r}
+hyper_jfm = bind_cols(hyper_summ_jfm,hyper_hpd_jfm)
+```
+
+
+
+### Full table of Bayesian estimators
+
+
+```{r}
+full_table_oni = bind_rows(
+bind_rows(par_jfm,hyper_jfm) %>% 
+  rownames_to_column("parameter") %>%
+  mutate(trimester = "JFM") ,
+
+bind_rows(par_mjj,hyper_mjj) %>% 
+  rownames_to_column("parameter")%>%
+  mutate(trimester = "MJJ"),
+
+bind_rows(par_ond,hyper_ond) %>% 
+  rownames_to_column("parameter")%>%
+  mutate(trimester = "OND")) %>% 
+  relocate(trimester) %>% 
+  mutate(mean = ifelse(mean<10,round(mean,2), format(round(mean,2), digits = 3, scientific = T)),
+         
+         median = ifelse(median<10, round(median,2), format(round(median,2), digits = 3, scientific = T)),
+         
+         mode = ifelse(mode<10,round(mode,2), format(round(mode,2), digits = 3, scientific = T)),
+         
+         sd = ifelse(sd<10,round(sd,2),format(round(sd,2), digits = 3, scientific = T)),
+         
+         HPD_lower = ifelse(HPD_lower<10,round(HPD_lower,2), format(round(HPD_lower,2), digits = 3, scientific = T)),
+         
+         HPD_upper = ifelse(HPD_upper<10 ,round(HPD_upper,2), format(round(HPD_upper,2), digits = 3, scientific = T))
+         )
+
+```
+
+```{r}
+full_table_oni
+```
+```{r include=FALSE}
+file = "main_enso_onset_files/desktop.ini"
+if (file.exists(file)) {
+ unlink(file)
+ cat("The file is deleted")
+}
+```

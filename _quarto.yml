@@ -1,0 +1,60 @@
+project:
+  type: website
+  execute-dir: project
+  output-dir: docs
+  render:
+    - about.qmd
+    - index.qmd
+    - main_enso_onset.qmd
+    - "!.models/"
+    - "!.figs/"
+    - "!.data/"
+    - "!.shapefiles/"
+  
+
+website:
+  title: "ENSO on SBR onset"
+  page-navigation: true
+  search: 
+    location: navbar
+    type: textbox 
+  sidebar:
+    style: "floating"
+    search: true
+    contents:
+      - section: Repository
+        contents:
+        - href: index.qmd
+          text: About this repository
+        - href: about.qmd
+          text: About the study
+      - section: Data analysis
+        contents:
+          - main_enso_onset.qmd
+        
+    tools:
+      - icon: twitter
+        href: https://twitter.com/AlvesKS_
+      - icon: github
+        href: https://github.com/AlvesKS/paper_ML_whitemold
+      - icon: download
+        href: https://osf.io/2khfv/
+  page-footer: "Copyright © 2022 Kaique S. Alves" 
+
+format:
+  html:
+    self-contained: true
+    # theme: cosmo
+    css: styles.css
+    toc: true
+    smooth-scroll: true
+
+execute:
+  cache: false
+  
+theme:
+  light: flatly
+  dark: darkly
+
+editor: source
+

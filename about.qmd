@@ -1,0 +1,51 @@
+---
+title: "About this study"
+---
+
+## **Modeling the effect of ENSO on the onset of soybean rust in Southern Brazil**
+*Kaique S. Alves^1^, Emerson M. Del Ponte^1^
+
+^**1**^ Departamento de Fitopatologia, Universidade Federal de Viçosa, Viçosa, MG 36570-900, Brazil
+
+> \***Corresponding author**: E. M. Del Ponte
+>
+> **Email**: delponte@ufv.br
+
+## Summary
+
+In this study, we explored the large database of 2441 first occurrences of soybean rust in commercial fields at the municipality level within 17 growing seasons (2005 to 2021) in the three southernmost Brazilian states. Considerable variability in the timing of disease onset was uncovered. Results from spatially structured Bayesian survival models indicated that the timing of disease onset was influenced by anomalies in the normal SST of the El Niño 3.4 region in the central Pacific before and during the crop season: MJJ and OND, respectively. The increase in ONI (e.g: warmer SST than normal) in these trimesters is expected to trigger the early onset of SBR epidemics in southern Brazil.
+
+## Original article
+
+::: {.callout-note appearance="simple"}
+# This repository contains the data and code for our article:
+
+:::
+
+
+## Read the Preprint
+
+::: {.callout-note appearance="simple"}
+
+# Our pre-print is online on the OSF preprint server:
+
+Alves, K. S., & Del Ponte, E. M. (2021, October 23). title. <https://doi.org/10.31219/osf.io/rz4uh>
+
+:::
+
+
+## Research compendium
+
+::: {.callout-note appearance="simple"}
+## Please cite this research compendium as:
+
+Alves, K. S., & Del Ponte, E. M. (2021, October 22). Research Compendium: XXXXX. <https://doi.org/10.17605/OSF.IO/2KHFV>
+:::
+
+
+
+
+
+
+
+
